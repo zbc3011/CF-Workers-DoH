@@ -21,6 +21,52 @@ export default {
             return await DOHRequest(request);
         }
         
+        // 添加IP地理位置信息查询代理
+        if (path === '/ip-info') {
+            const ip = url.searchParams.get('ip');
+            if (!ip) {
+                return new Response(JSON.stringify({ error: "IP参数未提供" }), {
+                    status: 400,
+                    headers: { 
+                        "content-type": "application/json",
+                        'Access-Control-Allow-Origin': '*'
+                    }
+                });
+            }
+            
+            try {
+                // 使用Worker代理请求HTTP的IP API
+                const response = await fetch(`http://ip-api.com/json/${ip}?lang=zh-CN`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // 返回数据给客户端，并添加CORS头
+                return new Response(JSON.stringify(data), {
+                    headers: { 
+                        "content-type": "application/json",
+                        'Access-Control-Allow-Origin': '*'
+                    }
+                });
+                
+            } catch (error) {
+                console.error("IP查询失败:", error);
+                return new Response(JSON.stringify({ 
+                    error: `IP查询失败: ${error.message}`,
+                    status: 'error'
+                }), {
+                    status: 500,
+                    headers: { 
+                        "content-type": "application/json",
+                        'Access-Control-Allow-Origin': '*'
+                    }
+                });
+            }
+        }
+        
         // 如果请求参数中包含 domain 和 doh，则执行 DNS 解析
         if (url.searchParams.has("domain") && url.searchParams.has("doh")) {
             const domain = url.searchParams.get("domain") || "www.google.com";
@@ -525,6 +571,39 @@ async function HTML() {
         .result-tabs {
           margin-bottom: 20px;
         }
+        .geo-info {
+          margin: 0 10px;
+          font-size: 0.85em;
+          flex-grow: 1;
+          text-align: center;
+        }
+        .geo-country {
+          color: #0d6efd;
+          font-weight: 500;
+          padding: 2px 6px;
+          background-color: #f0f7ff;
+          border-radius: 4px;
+          display: inline-block;
+        }
+        .geo-as {
+          color: #6610f2;
+          padding: 2px 6px;
+          background-color: #f0f7ff;
+          border-radius: 4px;
+          margin-left: 5px;
+          display: inline-block;
+        }
+        .geo-loading {
+          color: #6c757d;
+          font-style: italic;
+        }
+        .ip-address {
+          min-width: 130px;
+        }
+        .ttl-info {
+          min-width: 80px;
+          text-align: right;
+        }
       </style>
     </head>
     <body>
@@ -682,6 +761,21 @@ async function HTML() {
           if (seconds < 86400) return Math.floor(seconds / 3600) + '小时';
           return Math.floor(seconds / 86400) + '天';
         }
+
+        // 查询 IP 地理位置信息 - 使用我们自己的代理API而非直接访问HTTP地址
+        async function queryIpGeoInfo(ip) {
+          try {
+            // 改为使用我们自己的代理接口
+            const response = await fetch(\`./ip-info?ip=\${ip}\`);
+            if (!response.ok) {
+              throw new Error(\`HTTP 错误: \${response.status}\`);
+            }
+            return await response.json();
+          } catch (error) {
+            console.error('IP 地理位置查询失败:', error);
+            return null;
+          }
+        }
         
         // 显示记录
         function displayRecords(data) {
@@ -706,10 +800,37 @@ async function HTML() {
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
                     <span class="ip-address">\${record.data}</span>
-                    <span class="text-muted">TTL: \${formatTTL(record.TTL)}</span>
+                    <span class="geo-info geo-loading">正在获取位置信息...</span>
+                    <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                 \`;
                 ipv4Container.appendChild(recordDiv);
+                
+                // 添加地理位置信息
+                const geoInfoSpan = recordDiv.querySelector('.geo-info');
+                // 异步查询 IP 地理位置信息
+                queryIpGeoInfo(record.data).then(geoData => {
+                  if (geoData && geoData.status === 'success') {
+                    // 更新为实际的地理位置信息
+                    geoInfoSpan.innerHTML = '';
+                    geoInfoSpan.classList.remove('geo-loading');
+                    
+                    // 添加国家信息
+                    const countrySpan = document.createElement('span');
+                    countrySpan.className = 'geo-country';
+                    countrySpan.textContent = geoData.country || '未知国家';
+                    geoInfoSpan.appendChild(countrySpan);
+                    
+                    // 添加 AS 信息
+                    const asSpan = document.createElement('span');
+                    asSpan.className = 'geo-as';
+                    asSpan.textContent = geoData.as ? geoData.as.split(' ')[1] || geoData.as : '未知 AS';
+                    geoInfoSpan.appendChild(asSpan);
+                  } else {
+                    // 查询失败或无结果
+                    geoInfoSpan.textContent = '位置信息获取失败';
+                  }
+                });
               }
             });
           }
@@ -731,10 +852,37 @@ async function HTML() {
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
                     <span class="ip-address">\${record.data}</span>
-                    <span class="text-muted">TTL: \${formatTTL(record.TTL)}</span>
+                    <span class="geo-info geo-loading">正在获取位置信息...</span>
+                    <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                 \`;
                 ipv6Container.appendChild(recordDiv);
+                
+                // 添加地理位置信息
+                const geoInfoSpan = recordDiv.querySelector('.geo-info');
+                // 异步查询 IP 地理位置信息
+                queryIpGeoInfo(record.data).then(geoData => {
+                  if (geoData && geoData.status === 'success') {
+                    // 更新为实际的地理位置信息
+                    geoInfoSpan.innerHTML = '';
+                    geoInfoSpan.classList.remove('geo-loading');
+                    
+                    // 添加国家信息
+                    const countrySpan = document.createElement('span');
+                    countrySpan.className = 'geo-country';
+                    countrySpan.textContent = geoData.country || '未知国家';
+                    geoInfoSpan.appendChild(countrySpan);
+                    
+                    // 添加 AS 信息
+                    const asSpan = document.createElement('span');
+                    asSpan.className = 'geo-as';
+                    asSpan.textContent = geoData.as || '未知 AS';
+                    geoInfoSpan.appendChild(asSpan);
+                  } else {
+                    // 查询失败或无结果
+                    geoInfoSpan.textContent = '位置信息获取失败';
+                  }
+                });
               }
             });
           }
@@ -763,6 +911,15 @@ async function HTML() {
               }
             });
           }
+          
+          // 当用户切换到IPv4或IPv6选项卡时，确保显示已加载的地理位置信息
+          document.getElementById('ipv4-tab').addEventListener('click', function() {
+            // 如果还有加载中的地理位置信息，可以在这里处理
+          });
+          
+          document.getElementById('ipv6-tab').addEventListener('click', function() {
+            // 如果还有加载中的地理位置信息，可以在这里处理
+          });
           
           // 显示复制按钮
           document.getElementById('copyBtn').style.display = 'block';
