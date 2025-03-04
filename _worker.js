@@ -35,25 +35,29 @@ export default {
             try {
                 // 根据请求类型进行不同的处理
                 if (type === "all") {
-                    // 同时请求 A 和 AAAA 记录，使用新的查询函数
+                    // 同时请求 A、AAAA 和 NS 记录，使用新的查询函数
                     const ipv4Result = await querySpecificProvider(doh, domain, "A");
                     const ipv6Result = await querySpecificProvider(doh, domain, "AAAA");
+                    const nsResult = await querySpecificProvider(doh, domain, "NS");
                     
                     // 合并结果
                     const combinedResult = {
-                        Status: ipv4Result.Status || ipv6Result.Status,
-                        TC: ipv4Result.TC || ipv6Result.TC,
-                        RD: ipv4Result.RD || ipv6Result.RD,
-                        RA: ipv4Result.RA || ipv6Result.RA,
-                        AD: ipv4Result.AD || ipv6Result.AD,
-                        CD: ipv4Result.CD || ipv6Result.CD,
-                        Question: [...(ipv4Result.Question || []), ...(ipv6Result.Question || [])],
-                        Answer: [...(ipv4Result.Answer || []), ...(ipv6Result.Answer || [])],
+                        Status: ipv4Result.Status || ipv6Result.Status || nsResult.Status,
+                        TC: ipv4Result.TC || ipv6Result.TC || nsResult.TC,
+                        RD: ipv4Result.RD || ipv6Result.RD || nsResult.RD,
+                        RA: ipv4Result.RA || ipv6Result.RA || nsResult.RA,
+                        AD: ipv4Result.AD || ipv6Result.AD || nsResult.AD,
+                        CD: ipv4Result.CD || ipv6Result.CD || nsResult.CD,
+                        Question: [...(ipv4Result.Question || []), ...(ipv6Result.Question || []), ...(nsResult.Question || [])],
+                        Answer: [...(ipv4Result.Answer || []), ...(ipv6Result.Answer || []), ...(nsResult.Answer || [])],
                         ipv4: {
                             records: ipv4Result.Answer || []
                         },
                         ipv6: {
                             records: ipv6Result.Answer || []
+                        },
+                        ns: {
+                            records: nsResult.Answer || []
                         }
                     };
                     
@@ -212,28 +216,32 @@ async function handleLocalDohRequest(domain, type, hostname) {
     
     try {
         if (type === "all") {
-            // 同时请求 A 和 AAAA 记录
+            // 同时请求 A、AAAA 和 NS 记录
             const ipv4Promise = querySpecificProvider(cfDoH, domain, "A");
             const ipv6Promise = querySpecificProvider(cfDoH, domain, "AAAA");
+            const nsPromise = querySpecificProvider(cfDoH, domain, "NS");
             
-            // 等待两个请求都完成
-            const [ipv4Result, ipv6Result] = await Promise.all([ipv4Promise, ipv6Promise]);
+            // 等待所有请求完成
+            const [ipv4Result, ipv6Result, nsResult] = await Promise.all([ipv4Promise, ipv6Promise, nsPromise]);
             
             // 合并结果
             const combinedResult = {
-                Status: ipv4Result.Status || ipv6Result.Status,
-                TC: ipv4Result.TC || ipv6Result.TC,
-                RD: ipv4Result.RD || ipv6Result.RD,
-                RA: ipv4Result.RA || ipv6Result.RA,
-                AD: ipv4Result.AD || ipv6Result.AD,
-                CD: ipv4Result.CD || ipv6Result.CD,
-                Question: [...(ipv4Result.Question || []), ...(ipv6Result.Question || [])],
-                Answer: [...(ipv4Result.Answer || []), ...(ipv6Result.Answer || [])],
+                Status: ipv4Result.Status || ipv6Result.Status || nsResult.Status,
+                TC: ipv4Result.TC || ipv6Result.TC || nsResult.TC,
+                RD: ipv4Result.RD || ipv6Result.RD || nsResult.RD,
+                RA: ipv4Result.RA || ipv6Result.RA || nsResult.RA,
+                AD: ipv4Result.AD || ipv6Result.AD || nsResult.AD,
+                CD: ipv4Result.CD || ipv6Result.CD || nsResult.CD,
+                Question: [...(ipv4Result.Question || []), ...(ipv6Result.Question || []), ...(nsResult.Question || [])],
+                Answer: [...(ipv4Result.Answer || []), ...(ipv6Result.Answer || []), ...(nsResult.Answer || [])],
                 ipv4: {
                     records: ipv4Result.Answer || []
                 },
                 ipv6: {
                     records: ipv6Result.Answer || []
+                },
+                ns: {
+                    records: nsResult.Answer || []
                 }
             };
             
@@ -531,11 +539,8 @@ async function HTML() {
                 <select id="dohSelect" class="form-select">
                   <option value="current" selected>当前站点 (自动)</option>
                   <option value="https://doh.pub/dns-query">doh.pub (腾讯)</option>
-                  <option value="https://dns.alidns.com/dns-query">AliDNS (阿里)</option>
-                  <option value="https://doh.360.cn/dns-query">360 DNS</option>
                   <option value="https://cloudflare-dns.com/dns-query">Cloudflare DNS</option>
                   <option value="https://dns.google/resolve">Google (谷歌)</option>
-                  <option value="https://doh.opendns.com/dns-query">OpenDNS (思科)</option>
                   <option value="https://dns.twnic.tw/dns-query">Quad101 (TWNIC)</option>
                   <option value="custom">自定义...</option>
                 </select>
@@ -579,6 +584,9 @@ async function HTML() {
                   <button class="nav-link" id="ipv6-tab" data-bs-toggle="tab" data-bs-target="#ipv6" type="button" role="tab">IPv6 地址</button>
                 </li>
                 <li class="nav-item" role="presentation">
+                  <button class="nav-link" id="ns-tab" data-bs-toggle="tab" data-bs-target="#ns" type="button" role="tab">NS 记录</button>
+                </li>
+                <li class="nav-item" role="presentation">
                   <button class="nav-link" id="raw-tab" data-bs-toggle="tab" data-bs-target="#raw" type="button" role="tab">原始数据</button>
                 </li>
               </ul>
@@ -590,6 +598,10 @@ async function HTML() {
                 <div class="tab-pane fade" id="ipv6" role="tabpanel" aria-labelledby="ipv6-tab">
                   <div class="result-summary" id="ipv6Summary"></div>
                   <div id="ipv6Records"></div>
+                </div>
+                <div class="tab-pane fade" id="ns" role="tabpanel" aria-labelledby="ns-tab">
+                  <div class="result-summary" id="nsSummary"></div>
+                  <div id="nsRecords"></div>
                 </div>
                 <div class="tab-pane fade" id="raw" role="tabpanel" aria-labelledby="raw-tab">
                   <pre id="result">等待查询...</pre>
@@ -723,6 +735,31 @@ async function HTML() {
                   </div>
                 \`;
                 ipv6Container.appendChild(recordDiv);
+              }
+            });
+          }
+          
+          // NS 记录
+          const nsRecords = data.ns?.records || [];
+          const nsContainer = document.getElementById('nsRecords');
+          nsContainer.innerHTML = '';
+          
+          if (nsRecords.length === 0) {
+            document.getElementById('nsSummary').innerHTML = \`<strong>未找到 NS 记录</strong>\`;
+          } else {
+            document.getElementById('nsSummary').innerHTML = \`<strong>找到 \${nsRecords.length} 条名称服务器记录</strong>\`;
+            
+            nsRecords.forEach(record => {
+              if (record.type === 2) {  // 2 = NS记录
+                const recordDiv = document.createElement('div');
+                recordDiv.className = 'ip-record';
+                recordDiv.innerHTML = \`
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="ip-address">\${record.data}</span>
+                    <span class="text-muted">TTL: \${formatTTL(record.TTL)}</span>
+                  </div>
+                \`;
+                nsContainer.appendChild(recordDiv);
               }
             });
           }
