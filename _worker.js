@@ -36,7 +36,7 @@ export default {
 
     // 添加IP地理位置信息查询代理
     if (path === '/ip-info') {
-      const ip = url.searchParams.get('ip');
+      const ip = url.searchParams.get('ip') || request.headers.get('CF-Connecting-IP');
       if (!ip) {
         return new Response(JSON.stringify({ error: "IP参数未提供" }), {
           status: 400,
@@ -58,7 +58,7 @@ export default {
         const data = await response.json();
 
         // 返回数据给客户端，并添加CORS头
-        return new Response(JSON.stringify(data), {
+        return new Response(JSON.stringify(data, null, 4), {
           headers: {
             "content-type": "application/json",
             'Access-Control-Allow-Origin': '*'
@@ -107,11 +107,11 @@ export default {
             RA: ipv4Result.RA || ipv6Result.RA || nsResult.RA,
             AD: ipv4Result.AD || ipv6Result.AD || nsResult.AD,
             CD: ipv4Result.CD || ipv6Result.CD || nsResult.CD,
-            
+
             // 修改处理Question字段的方式，兼容对象格式和数组格式
             Question: [],
-            
-            Answer: [...(ipv4Result.Answer || []), ...(ipv6Result.Answer || []), ...(nsResult.Answer || [])],
+
+            Answer: [...(ipv4Result.Answer || []), ...(ipv6Result.Answer || [])],
             ipv4: {
               records: ipv4Result.Answer || []
             },
@@ -119,10 +119,10 @@ export default {
               records: ipv6Result.Answer || []
             },
             ns: {
-              records: nsResult.Answer || []
+              records: []
             }
           };
-          
+
           // 正确处理Question字段，无论是对象还是数组
           if (ipv4Result.Question) {
             if (Array.isArray(ipv4Result.Question)) {
@@ -131,7 +131,7 @@ export default {
               combinedResult.Question.push(ipv4Result.Question);
             }
           }
-          
+
           if (ipv6Result.Question) {
             if (Array.isArray(ipv6Result.Question)) {
               combinedResult.Question.push(...ipv6Result.Question);
@@ -139,7 +139,7 @@ export default {
               combinedResult.Question.push(ipv6Result.Question);
             }
           }
-          
+
           if (nsResult.Question) {
             if (Array.isArray(nsResult.Question)) {
               combinedResult.Question.push(...nsResult.Question);
@@ -147,6 +147,32 @@ export default {
               combinedResult.Question.push(nsResult.Question);
             }
           }
+
+          // 处理NS记录 - 可能在Answer或Authority部分
+          const nsRecords = [];
+
+          // 从Answer部分收集NS记录
+          if (nsResult.Answer && nsResult.Answer.length > 0) {
+            nsResult.Answer.forEach(record => {
+              if (record.type === 2) { // NS记录类型是2
+                nsRecords.push(record);
+              }
+            });
+          }
+
+          // 从Authority部分收集NS和SOA记录
+          if (nsResult.Authority && nsResult.Authority.length > 0) {
+            nsResult.Authority.forEach(record => {
+              if (record.type === 2 || record.type === 6) { // NS=2, SOA=6
+                nsRecords.push(record);
+                // 也添加到总Answer数组
+                combinedResult.Answer.push(record);
+              }
+            });
+          }
+
+          // 设置NS记录集合
+          combinedResult.ns.records = nsRecords;
 
           return new Response(JSON.stringify(combinedResult, null, 2), {
             headers: { "content-type": "application/json" }
@@ -256,6 +282,18 @@ async function handleLocalDohRequest(domain, type, hostname) {
       // 等待所有请求完成
       const [ipv4Result, ipv6Result, nsResult] = await Promise.all([ipv4Promise, ipv6Promise, nsPromise]);
 
+      // 准备NS记录数组
+      const nsRecords = [];
+
+      // 从Answer和Authority部分收集NS记录
+      if (nsResult.Answer && nsResult.Answer.length > 0) {
+        nsRecords.push(...nsResult.Answer.filter(record => record.type === 2));
+      }
+
+      if (nsResult.Authority && nsResult.Authority.length > 0) {
+        nsRecords.push(...nsResult.Authority.filter(record => record.type === 2 || record.type === 6));
+      }
+
       // 合并结果
       const combinedResult = {
         Status: ipv4Result.Status || ipv6Result.Status || nsResult.Status,
@@ -265,7 +303,11 @@ async function handleLocalDohRequest(domain, type, hostname) {
         AD: ipv4Result.AD || ipv6Result.AD || nsResult.AD,
         CD: ipv4Result.CD || ipv6Result.CD || nsResult.CD,
         Question: [...(ipv4Result.Question || []), ...(ipv6Result.Question || []), ...(nsResult.Question || [])],
-        Answer: [...(ipv4Result.Answer || []), ...(ipv6Result.Answer || []), ...(nsResult.Answer || [])],
+        Answer: [
+          ...(ipv4Result.Answer || []),
+          ...(ipv6Result.Answer || []),
+          ...nsRecords
+        ],
         ipv4: {
           records: ipv4Result.Answer || []
         },
@@ -273,7 +315,7 @@ async function handleLocalDohRequest(domain, type, hostname) {
           records: ipv6Result.Answer || []
         },
         ns: {
-          records: nsResult.Answer || []
+          records: nsRecords
         }
       };
 
@@ -1075,17 +1117,49 @@ async function HTML() {
             document.getElementById('nsSummary').innerHTML = \`<strong>找到 \${nsRecords.length} 条名称服务器记录</strong>\`;
             
             nsRecords.forEach(record => {
-              if (record.type === 2) {  // 2 = NS记录
-                const recordDiv = document.createElement('div');
-                recordDiv.className = 'ip-record';
+              const recordDiv = document.createElement('div');
+              recordDiv.className = 'ip-record';
+              
+              // 不同类型的记录使用不同的显示方式
+              if (record.type === 2) {  // NS 记录
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
                     <span class="ip-address">\${record.data}</span>
-                    <span class="text-muted">TTL: \${formatTTL(record.TTL)}</span>
+                    <span class="badge bg-info">NS</span>
+                    <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                 \`;
-                nsContainer.appendChild(recordDiv);
+              } else if (record.type === 6) {  // SOA 记录
+                // SOA 记录格式: primary_ns admin_email serial refresh retry expire minimum
+                const soaParts = record.data.split(' ');
+                recordDiv.innerHTML = \`
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="ip-address">\${record.name}</span>
+                    <span class="badge bg-warning">SOA</span>
+                    <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
+                  </div>
+                  <div class="ps-3 small">
+                    <div><strong>主 NS:</strong> \${soaParts[0]}</div>
+                    <div><strong>管理邮箱:</strong> \${soaParts[1]}</div>
+                    <div><strong>序列号:</strong> \${soaParts[2]}</div>
+                    <div><strong>刷新间隔:</strong> \${formatTTL(soaParts[3])}</div>
+                    <div><strong>重试间隔:</strong> \${formatTTL(soaParts[4])}</div>
+                    <div><strong>过期时间:</strong> \${formatTTL(soaParts[5])}</div>
+                    <div><strong>最小 TTL:</strong> \${formatTTL(soaParts[6])}</div>
+                  </div>
+                \`;
+              } else {
+                // 其他类型的记录
+                recordDiv.innerHTML = \`
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="ip-address">\${record.data}</span>
+                    <span class="badge bg-secondary">类型: \${record.type}</span>
+                    <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
+                  </div>
+                \`;
               }
+              
+              nsContainer.appendChild(recordDiv);
             });
           }
           
