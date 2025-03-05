@@ -16,19 +16,19 @@ CF-Workers-DoH 是一个基于 Cloudflare Workers 构建的 DNS over HTTPS (DoH)
 
 将以下地址添加到支持DoH的设备或软件中：
 
-```
+```url
 https://doh.090227.xyz/dns-query
 ```
 
 ### 2️⃣ 附加功能 IP信息查询
 
 - 🔍 查询当前IP信息
-```
+```url
 https://doh.090227.xyz/ip-info
 ```
 
 - 🔍 查询指定IP信息
-```
+```url
 https://doh.090227.xyz/ip-info?ip=8.8.8.8
 ```
 

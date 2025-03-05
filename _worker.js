@@ -1152,6 +1152,8 @@ async function HTML() {
               } else if (record.type === 6) {  // SOA 记录
                 // SOA 记录格式: primary_ns admin_email serial refresh retry expire minimum
                 const soaParts = record.data.split(' ');
+                let adminEmail = soaParts[1].replace('.', '@');
+                if (adminEmail.endsWith('.')) adminEmail = adminEmail.slice(0, -1);
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center mb-2">
                     <span class="ip-address">\${record.name}</span>
@@ -1160,7 +1162,7 @@ async function HTML() {
                   </div>
                   <div class="ps-3 small">
                     <div><strong>主 NS:</strong> \${soaParts[0]}</div>
-                    <div><strong>管理邮箱:</strong> \${soaParts[1]}</div>
+                    <div><strong>管理邮箱:</strong> \${adminEmail}</div>
                     <div><strong>序列号:</strong> \${soaParts[2]}</div>
                     <div><strong>刷新间隔:</strong> \${formatTTL(soaParts[3])}</div>
                     <div><strong>重试间隔:</strong> \${formatTTL(soaParts[4])}</div>
