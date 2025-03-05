@@ -1013,9 +1013,19 @@ async function HTML() {
             document.getElementById('ipv4Summary').innerHTML = \`<strong>找到 \${ipv4Records.length} 条 IPv4 记录</strong>\`;
             
             ipv4Records.forEach(record => {
-              if (record.type === 1) {  // 1 = A记录
-                const recordDiv = document.createElement('div');
-                recordDiv.className = 'ip-record';
+              const recordDiv = document.createElement('div');
+              recordDiv.className = 'ip-record';
+              
+              if (record.type === 5) { // CNAME 记录
+                recordDiv.innerHTML = \`
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="ip-address">\${record.data}</span>
+                    <span class="badge bg-success">CNAME</span>
+                    <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
+                  </div>
+                \`;
+                ipv4Container.appendChild(recordDiv);
+              } else if (record.type === 1) {  // A记录
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
                     <span class="ip-address">\${record.data}</span>
@@ -1065,9 +1075,19 @@ async function HTML() {
             document.getElementById('ipv6Summary').innerHTML = \`<strong>找到 \${ipv6Records.length} 条 IPv6 记录</strong>\`;
             
             ipv6Records.forEach(record => {
-              if (record.type === 28) {  // 28 = AAAA记录
-                const recordDiv = document.createElement('div');
-                recordDiv.className = 'ip-record';
+              const recordDiv = document.createElement('div');
+              recordDiv.className = 'ip-record';
+              
+              if (record.type === 5) { // CNAME 记录
+                recordDiv.innerHTML = \`
+                  <div class="d-flex justify-content-between align-items-center">
+                    <span class="ip-address">\${record.data}</span>
+                    <span class="badge bg-success">CNAME</span>
+                    <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
+                  </div>
+                \`;
+                ipv6Container.appendChild(recordDiv);
+              } else if (record.type === 28) {  // AAAA记录
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
                     <span class="ip-address">\${record.data}</span>
