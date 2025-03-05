@@ -1,5 +1,18 @@
+let DoH = "cloudflare-dns.com";
+const jsonDoH = `https://${DoH}/resolve`;
+const dnsDoH = `https://${DoH}/dns-query`;
+let DoH路径 = 'dns-query';
 export default {
   async fetch(request, env) {
+    if (env.DOH) {
+      DoH = env.DOH;
+      const match = DoH.match(/:\/\/([^\/]+)/);
+      if (match) {
+        DoH = match[1];
+      }
+    }
+    DoH路径 = env.PATH || env.TOKEN || DoH路径;
+    if (DoH路径.includes("/")) DoH路径 = DoH路径.split("/")[1];
     const url = new URL(request.url);
     const path = url.pathname;
     const hostname = url.hostname;
@@ -16,8 +29,8 @@ export default {
       });
     }
 
-    // 如果请求路径是 /dns-query，则作为 DoH 服务器处理
-    if (path === '/dns-query') {
+    // 如果请求路径，则作为 DoH 服务器处理
+    if (path === `/${DoH路径}`) {
       return await DOHRequest(request);
     }
 
@@ -68,12 +81,12 @@ export default {
     }
 
     // 如果请求参数中包含 domain 和 doh，则执行 DNS 解析
-    if (url.searchParams.has("domain") && url.searchParams.has("doh")) {
-      const domain = url.searchParams.get("domain") || "www.google.com";
-      const doh = url.searchParams.get("doh") || "https://cloudflare-dns.com/dns-query";
+    if (url.searchParams.has("doh")) {
+      const domain = url.searchParams.get("domain") || url.searchParams.get("name") || "www.google.com";
+      const doh = url.searchParams.get("doh") || dnsDoH;
       const type = url.searchParams.get("type") || "all"; // 默认同时查询 A 和 AAAA
 
-      // 如果使用的是当前站点，则使用 Cloudflare 的 DoH 服务
+      // 如果使用的是当前站点，则使用 DoH 服务
       if (doh.includes(url.host) || doh === '/dns-query') {
         return await handleLocalDohRequest(domain, type, hostname);
       }
@@ -82,11 +95,11 @@ export default {
         // 根据请求类型进行不同的处理
         if (type === "all") {
           // 同时请求 A、AAAA 和 NS 记录，使用新的查询函数
-          const ipv4Result = await querySpecificProvider(doh, domain, "A");
-          const ipv6Result = await querySpecificProvider(doh, domain, "AAAA");
-          const nsResult = await querySpecificProvider(doh, domain, "NS");
+          const ipv4Result = await queryDns(doh, domain, "A");
+          const ipv6Result = await queryDns(doh, domain, "AAAA");
+          const nsResult = await queryDns(doh, domain, "NS");
 
-          // 合并结果
+          // 合并结果 - 修改Question字段处理方式以兼容不同格式
           const combinedResult = {
             Status: ipv4Result.Status || ipv6Result.Status || nsResult.Status,
             TC: ipv4Result.TC || ipv6Result.TC || nsResult.TC,
@@ -94,7 +107,10 @@ export default {
             RA: ipv4Result.RA || ipv6Result.RA || nsResult.RA,
             AD: ipv4Result.AD || ipv6Result.AD || nsResult.AD,
             CD: ipv4Result.CD || ipv6Result.CD || nsResult.CD,
-            Question: [...(ipv4Result.Question || []), ...(ipv6Result.Question || []), ...(nsResult.Question || [])],
+            
+            // 修改处理Question字段的方式，兼容对象格式和数组格式
+            Question: [],
+            
             Answer: [...(ipv4Result.Answer || []), ...(ipv6Result.Answer || []), ...(nsResult.Answer || [])],
             ipv4: {
               records: ipv4Result.Answer || []
@@ -106,13 +122,38 @@ export default {
               records: nsResult.Answer || []
             }
           };
+          
+          // 正确处理Question字段，无论是对象还是数组
+          if (ipv4Result.Question) {
+            if (Array.isArray(ipv4Result.Question)) {
+              combinedResult.Question.push(...ipv4Result.Question);
+            } else {
+              combinedResult.Question.push(ipv4Result.Question);
+            }
+          }
+          
+          if (ipv6Result.Question) {
+            if (Array.isArray(ipv6Result.Question)) {
+              combinedResult.Question.push(...ipv6Result.Question);
+            } else {
+              combinedResult.Question.push(ipv6Result.Question);
+            }
+          }
+          
+          if (nsResult.Question) {
+            if (Array.isArray(nsResult.Question)) {
+              combinedResult.Question.push(...nsResult.Question);
+            } else {
+              combinedResult.Question.push(nsResult.Question);
+            }
+          }
 
           return new Response(JSON.stringify(combinedResult, null, 2), {
             headers: { "content-type": "application/json" }
           });
         } else {
           // 普通的单类型查询，使用新的查询函数
-          const result = await querySpecificProvider(doh, domain, type);
+          const result = await queryDns(doh, domain, type);
           return new Response(JSON.stringify(result, null, 2), {
             headers: { "content-type": "application/json" }
           });
@@ -203,69 +244,14 @@ async function queryDns(dohServer, domain, type) {
   throw lastError || new Error("无法完成 DNS 查询");
 }
 
-// 添加对特定 DoH 服务的特殊处理
-async function querySpecificProvider(dohServer, domain, type) {
-  // 检查是否为已知需要特殊处理的服务
-  const dohLower = dohServer.toLowerCase();
-
-  // Google DNS 特殊处理
-  if (dohLower.includes('dns.google')) {
-    const url = new URL(dohServer);
-    // Google DNS 使用 /resolve 的 endpoint
-    if (!dohLower.includes('/resolve')) {
-      url.pathname = '/resolve';
-    }
-    url.searchParams.set("name", domain);
-    url.searchParams.set("type", type);
-
-    const response = await fetch(url.toString(), {
-      headers: { 'Accept': 'application/json' }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Google DNS 服务返回错误 (${response.status}): ${errorText}`);
-    }
-
-    return await response.json();
-  }
-
-  // OpenDNS 特殊处理
-  else if (dohLower.includes('opendns.com')) {
-    const url = new URL(dohServer);
-    url.searchParams.set("name", domain);
-    url.searchParams.set("type", type);
-
-    const response = await fetch(url.toString(), {
-      headers: {
-        'Accept': 'application/dns-json',
-        'User-Agent': 'Mozilla/5.0 DNS Client'
-      }
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OpenDNS 服务返回错误 (${response.status}): ${errorText}`);
-    }
-
-    return await response.json();
-  }
-
-  // 使用通用方法
-  return await queryDns(dohServer, domain, type);
-}
-
-// 处理本地 DoH 请求的函数 - 直接调用 Cloudflare DoH，而不是自身服务
+// 处理本地 DoH 请求的函数 - 直接调用 DoH，而不是自身服务
 async function handleLocalDohRequest(domain, type, hostname) {
-  // 直接使用 Cloudflare DoH 服务而不是自己，避免循环引用
-  const cfDoH = "https://cloudflare-dns.com/dns-query";
-
   try {
     if (type === "all") {
       // 同时请求 A、AAAA 和 NS 记录
-      const ipv4Promise = querySpecificProvider(cfDoH, domain, "A");
-      const ipv6Promise = querySpecificProvider(cfDoH, domain, "AAAA");
-      const nsPromise = querySpecificProvider(cfDoH, domain, "NS");
+      const ipv4Promise = queryDns(dnsDoH, domain, "A");
+      const ipv6Promise = queryDns(dnsDoH, domain, "AAAA");
+      const nsPromise = queryDns(dnsDoH, domain, "NS");
 
       // 等待所有请求完成
       const [ipv4Result, ipv6Result, nsResult] = await Promise.all([ipv4Promise, ipv6Promise, nsPromise]);
@@ -299,7 +285,7 @@ async function handleLocalDohRequest(domain, type, hostname) {
       });
     } else {
       // 普通的单类型查询
-      const result = await querySpecificProvider(cfDoH, domain, type);
+      const result = await queryDns(dnsDoH, domain, type);
       return new Response(JSON.stringify(result, null, 2), {
         headers: {
           "content-type": "application/json",
@@ -308,9 +294,9 @@ async function handleLocalDohRequest(domain, type, hostname) {
       });
     }
   } catch (err) {
-    console.error("Cloudflare DoH 查询失败:", err);
+    console.error("DoH 查询失败:", err);
     return new Response(JSON.stringify({
-      error: `Cloudflare DoH 查询失败: ${err.message}`,
+      error: `DoH 查询失败: ${err.message}`,
       stack: err.stack
     }, null, 2), {
       headers: {
@@ -328,34 +314,32 @@ async function DOHRequest(request) {
   const url = new URL(request.url);
   const { searchParams } = url;
 
-  // 处理 DNS over HTTPS 请求
-  // 使用 Cloudflare 的安全 DoH 服务作为后端
-  const cloudflareDoH = 'https://cloudflare-dns.com/dns-query';
-
   try {
     // 根据请求方法和参数构建转发请求
     let response;
 
     if (method === 'GET' && searchParams.has('name')) {
       // 处理 JSON 格式的 DoH 请求
-      const name = searchParams.get('name');
-      const type = searchParams.get('type') || 'A';
-
-      // 防止循环引用，检查请求是否来自自身
-      const cfUrl = new URL(cloudflareDoH);
-      cfUrl.searchParams.set('name', name);
-      cfUrl.searchParams.set('type', type);
-
-      response = await fetch(cfUrl.toString(), {
+      response = await fetch(dnsDoH + url.search, {
         headers: {
           'Accept': 'application/dns-json',
           // 添加 User-Agent 以避免被识别为自动爬虫
           'User-Agent': 'DoH Client'
         }
       });
-    } else if (method === 'GET' && searchParams.has('dns')) {
+
+      // 如果 DoHUrl 请求成功（状态码 200），则再请求 jsonDoH
+      if (response.status !== 200) {
+        response = await fetch(jsonDoH + url.search, {
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': 'DoH Client'
+          }
+        });
+      }
+    } else if (method === 'GET') {
       // 处理 base64url 格式的 GET 请求
-      response = await fetch(`${cloudflareDoH}?dns=${searchParams.get('dns')}`, {
+      response = await fetch(dnsDoH + url.search, {
         headers: {
           'Accept': 'application/dns-message',
           'User-Agent': 'DoH Client'
@@ -365,7 +349,7 @@ async function DOHRequest(request) {
       // 处理 POST 请求
       const contentType = headers.get('content-type');
       if (contentType === 'application/dns-message') {
-        response = await fetch(cloudflareDoH, {
+        response = await fetch(dnsDoH, {
           method: 'POST',
           headers: {
             'Accept': 'application/dns-message',
@@ -390,7 +374,7 @@ async function DOHRequest(request) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Cloudflare DoH 返回错误 (${response.status}): ${errorText.substring(0, 200)}`);
+      throw new Error(`DoH 返回错误 (${response.status}): ${errorText.substring(0, 200)}`);
     }
 
     // 创建一个新的响应头对象
@@ -442,7 +426,7 @@ async function HTML() {
       margin: 0;
       line-height: 1.6;
       background: url('https://cf-assets.www.cloudflare.com/dzlvafdwdttg/5B5shLB8bSKIyB9NJ6R1jz/87e7617be2c61603d46003cb3f1bd382/Hero-globe-bg-takeover-xxl.png'),
-        linear-gradient(135deg, rgba(253, 101, 60, 0.85) 0%, rgba(255, 156, 110, 0.85) 100%);
+        linear-gradient(135deg, rgba(253, 101, 60, 0.85) 0%, rgba(251,152,30, 0.85) 100%);
       background-size: cover;
       background-position: center center;
       background-repeat: no-repeat;
@@ -799,10 +783,14 @@ async function HTML() {
             <label for="dohSelect" class="form-label">选择 DoH 地址:</label>
             <select id="dohSelect" class="form-select">
               <option value="current" selected>当前站点 (自动)</option>
-              <option value="https://doh.pub/dns-query">doh.pub (腾讯)</option>
-              <option value="https://cloudflare-dns.com/dns-query">Cloudflare DNS</option>
-              <option value="https://dns.google/resolve">Google (谷歌)</option>
-              <option value="https://dns.twnic.tw/dns-query">Quad101 (TWNIC)</option>
+              <option value="https://dns.alidns.com/resolve">https://dns.alidns.com/resolve (阿里)</option>
+              <option value="https://doh.pub/dns-query">https://doh.pub/dns-query (腾讯)</option>
+              <option value="https://doh.360.cn/resolve">https://doh.360.cn/resolve (360)</option>
+              <option value="https://cloudflare-dns.com/dns-query">https://cloudflare-dns.com/dns-query (Cloudflare)</option>
+              <option value="https://dns.google/resolve">https://dns.google/resolve (谷歌)</option>
+              <option value="https://dns.adguard-dns.com/resolve">https://dns.adguard-dns.com/resolve (AdGuard)</option>
+              <option value="https://dns.sb/dns-query">https://dns.sb/dns-query (DNS.SB)</option>
+              <option value="https://dns.twnic.tw/dns-query">https://dns.twnic.tw/dns-query (Quad101 TWNIC)</option>
               <option value="custom">自定义...</option>
             </select>
           </div>
@@ -884,7 +872,7 @@ async function HTML() {
 
     <div class="beian-info">
       <p><strong>DNS-over-HTTPS：<span id="dohUrlDisplay" class="copy-link" title="点击复制">https://<span
-              id="currentDomain">...</span>/dns-query</span></strong><br>基于 Cloudflare Workers 的 DoH (DNS over HTTPS)
+              id="currentDomain">...</span>/${DoH路径}</span></strong><br>基于 Cloudflare Workers 上游 ${DoH} 的 DoH (DNS over HTTPS)
         解析服务</p>
     </div>
   </div>
@@ -1210,7 +1198,7 @@ async function HTML() {
         const dohUrlDisplay = document.getElementById('dohUrlDisplay');
         if (dohUrlDisplay) {
             dohUrlDisplay.addEventListener('click', function() {
-            const textToCopy = currentProtocol + '//' + currentHost + '/dns-query';
+            const textToCopy = currentProtocol + '//' + currentHost + '/${DoH路径}';
             navigator.clipboard.writeText(textToCopy).then(function() {
                 dohUrlDisplay.classList.add('copied');
                 setTimeout(() => {

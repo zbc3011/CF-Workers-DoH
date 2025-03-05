@@ -17,6 +17,13 @@ CF-Workers-DoH 是一个基于 Cloudflare Workers 构建的 DNS over HTTPS (DoH)
 https://doh.090227.xyz/dns-query
 ```
 
+## 🔧 变量说明
+
+| 变量名 | 示例 | 必填 | 备注 | 
+|--|--|--|--|
+| DOH | `dns.google` |❌| 设置上游DoH服务（默认：`cloudflare-dns.com`） |
+| TOKEN | `dns-query` |❌| 设置请求DoH服务路径（默认：`/dns-query`） |
+
 ## 💡 技术特性
 - 基于 Cloudflare Workers 无服务器架构
 - 使用原生 JavaScript 实现
