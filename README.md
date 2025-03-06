@@ -78,7 +78,8 @@ https://doh.090227.xyz/ip-info?ip=8.8.8.8&token=CMLiussss
 }
 ```
 
-> 💡 **提示**：请将示例中的 `doh.090227.xyz` 替换为你实际部署的域名
+> [!NOTE]
+> 请将示例中的 `doh.090227.xyz` 替换为你实际部署的域名
 
 ## 🔧 变量说明
 
@@ -86,8 +87,8 @@ https://doh.090227.xyz/ip-info?ip=8.8.8.8&token=CMLiussss
 |--|--|--|--|
 | DOH | `dns.google` |❌| 设置上游DoH服务（默认：`cloudflare-dns.com`） |
 | TOKEN | `dns-query` |❌| 设置请求DoH服务路径（默认：`/dns-query`） |
-| URL | `https://www.baidu.com/` |❌| 主页伪装(设为`nginx`则伪装为nginx默认页面) |
-| URL302 | `https://t.me/CMLiussss` |❌| 主页302跳转 |
+| URL | `https://www.baidu.com/` |❌| 主页伪装（设为`nginx`则伪装为nginx默认页面） |
+| URL302 | `https://t.me/CMLiussss` |❌| 主页302跳转（与`URL`变量同时存在时优先执行`URL302`）|
 
 > [!TIP]
 > 1. 使用 `dns.google` 或 `cloudflare-dns.com` 作为DoH上游时，**解析速度最佳**！
@@ -95,6 +96,9 @@ https://doh.090227.xyz/ip-info?ip=8.8.8.8&token=CMLiussss
 > 3. 使用 `family.cloudflare-dns.com` 作为DoH上游时，可**阻止恶意软件**和**成人内容**的DNS解析服务；
 > 4. 已知 `doh.pub` **自带污染**，不适合作为DoH上游；
 > 5. 目前 `dns.alidns.com` 和 `doh.360.cn` 在**非中国大陆环境**请求DoH时，会下发干净DNS解析服务，也就是**可以作为CF-DoH的上游**，但是**解析速度不佳**。
+
+## ⭐ Star 星星走起
+[![Stargazers over time](https://starchart.cc/cmliu/CF-Workers-DoH.svg?variant=adaptive)](https://starchart.cc/cmliu/CF-Workers-DoH)
 
 ## 💡 技术特性
 - 基于 Cloudflare Workers 无服务器架构
