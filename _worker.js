@@ -11,7 +11,7 @@ export default {
         DoH = match[1];
       }
     }
-    DoH路径 = env.PATH || env.TOKEN || DoH路径;
+    DoH路径 = env.PATH || env.TOKEN || DoH路径;//DoH路径也单独设置 变量PATH
     if (DoH路径.includes("/")) DoH路径 = DoH路径.split("/")[1];
     const url = new URL(request.url);
     const path = url.pathname;
@@ -36,6 +36,19 @@ export default {
 
     // 添加IP地理位置信息查询代理
     if (path === '/ip-info') {
+      if (env.TOKEN) {
+        const token = url.searchParams.get('token');
+        if (token != env.TOKEN) {
+          return new Response(JSON.stringify({ error: "Token不正确" }), {
+            status: 403,
+            headers: {
+              "content-type": "application/json; charset=UTF-8",
+              'Access-Control-Allow-Origin': '*'
+            }
+          });
+        }
+      }
+
       const ip = url.searchParams.get('ip') || request.headers.get('CF-Connecting-IP');
       if (!ip) {
         return new Response(JSON.stringify({ error: "IP参数未提供" }), {
@@ -87,7 +100,7 @@ export default {
       const type = url.searchParams.get("type") || "all"; // 默认同时查询 A 和 AAAA
 
       // 如果使用的是当前站点，则使用 DoH 服务
-      if (doh.includes(url.host) || doh === '/dns-query') {
+      if (doh.includes(url.host)) {
         return await handleLocalDohRequest(domain, type, hostname);
       }
 
@@ -198,7 +211,16 @@ export default {
       }
     }
 
-    return await HTML();
+    if (env.URL302) return Response.redirect(env.URL302, 302);
+    else if (env.URL) {
+      if (env.URL.toString().toLowerCase() == 'nginx') {
+        return new Response(await nginx(), {
+          headers: {
+            'Content-Type': 'text/html; charset=UTF-8',
+          },
+        });
+      } else return await 代理URL(env.URL, url);
+    } else return await HTML();
   }
 }
 
@@ -352,66 +374,72 @@ async function handleLocalDohRequest(domain, type, hostname) {
 
 // DoH 请求处理函数
 async function DOHRequest(request) {
-  const { method, headers } = request;
+  const { method, headers, body } = request;
+  const UA = headers.get('User-Agent') || 'DoH Client';
   const url = new URL(request.url);
   const { searchParams } = url;
 
   try {
+    // 直接访问端点的处理
+    if (method === 'GET' && !url.search) {
+      // 如果是直接访问或浏览器访问，返回友好信息
+      return new Response('Bad Request', {
+        status: 400,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
     // 根据请求方法和参数构建转发请求
     let response;
 
     if (method === 'GET' && searchParams.has('name')) {
+      const searchDoH = searchParams.has('type') ? url.search : url.search + '&type=A';
       // 处理 JSON 格式的 DoH 请求
-      response = await fetch(dnsDoH + url.search, {
+      response = await fetch(dnsDoH + searchDoH, {
         headers: {
           'Accept': 'application/dns-json',
-          // 添加 User-Agent 以避免被识别为自动爬虫
-          'User-Agent': 'DoH Client'
+          'User-Agent': UA
         }
       });
-
-      // 如果 DoHUrl 请求成功（状态码 200），则再请求 jsonDoH
-      if (response.status !== 200) {
-        response = await fetch(jsonDoH + url.search, {
-          headers: {
-            'Accept': 'application/json',
-            'User-Agent': 'DoH Client'
-          }
-        });
-      }
+      // 如果 DoHUrl 请求非成功（状态码 200），则再请求 jsonDoH
+      if (!response.ok) response = await fetch(jsonDoH + searchDoH, {
+        headers: {
+          'Accept': 'application/dns-json',
+          'User-Agent': UA
+        }
+      });
     } else if (method === 'GET') {
       // 处理 base64url 格式的 GET 请求
       response = await fetch(dnsDoH + url.search, {
         headers: {
           'Accept': 'application/dns-message',
-          'User-Agent': 'DoH Client'
+          'User-Agent': UA
         }
       });
     } else if (method === 'POST') {
       // 处理 POST 请求
-      const contentType = headers.get('content-type');
-      if (contentType === 'application/dns-message') {
-        response = await fetch(dnsDoH, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/dns-message',
-            'Content-Type': 'application/dns-message',
-            'User-Agent': 'DoH Client'
-          },
-          body: request.body
-        });
-      } else {
-        return new Response('不支持的请求格式', { status: 400 });
-      }
+      response = await fetch(dnsDoH, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/dns-message',
+          'Content-Type': 'application/dns-message',
+          'User-Agent': UA
+        },
+        body: body
+      });
+
     } else {
-      // 初始请求处理
-      // 如果是浏览器直接访问 /dns-query 路径，返回简单信息
-      if (headers.get('accept')?.includes('text/html')) {
-        return new Response('DoH 端点已启用。这是一个 DNS over HTTPS 服务接口，不是网页。', {
-          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-        });
-      }
-      return new Response('不支持的请求格式', { status: 400 });
+      // 其他不支持的请求方式
+      return new Response('不支持的请求格式: DoH请求需要包含name或dns参数，或使用POST方法', {
+        status: 400,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
     }
 
     if (!response.ok) {
@@ -437,7 +465,7 @@ async function DOHRequest(request) {
     return new Response(JSON.stringify({
       error: `DoH 请求处理错误: ${error.message}`,
       stack: error.stack
-    }), {
+    }, null, 4), {
       status: 500,
       headers: {
         'Content-Type': 'application/json',
@@ -686,6 +714,33 @@ async function HTML() {
       font-weight: 600;
       min-width: 130px;
       color: rgb(80, 60, 50);
+      cursor: pointer;
+      position: relative;
+      transition: color 0.2s ease;
+      display: inline-block;
+    }
+
+    .ip-address:hover {
+      color: rgb(253, 101, 60);
+    }
+
+    .ip-address:after {
+      content: '';
+      position: absolute;
+      left: 100%;  /* 从IP地址的右侧开始定位 */
+      top: 0;
+      opacity: 0;
+      white-space: nowrap;
+      font-size: 12px;
+      color: rgb(253, 101, 60);
+      transition: opacity 0.3s ease;
+      font-family: 'Segoe UI', sans-serif;
+      font-weight: normal;
+    }
+
+    .ip-address.copied:after {
+      content: '✓ 已复制';
+      opacity: 1;
     }
 
     .result-summary {
@@ -824,7 +879,7 @@ async function HTML() {
           <div class="mb-3">
             <label for="dohSelect" class="form-label">选择 DoH 地址:</label>
             <select id="dohSelect" class="form-select">
-              <option value="current" selected>当前站点 (自动)</option>
+              <option value="current" selected id="currentDohOption">自动 (当前站点)</option>
               <option value="https://dns.alidns.com/resolve">https://dns.alidns.com/resolve (阿里)</option>
               <option value="https://doh.pub/dns-query">https://doh.pub/dns-query (腾讯)</option>
               <option value="https://doh.360.cn/resolve">https://doh.360.cn/resolve (360)</option>
@@ -925,7 +980,8 @@ async function HTML() {
     const currentUrl = window.location.href;
     const currentHost = window.location.host;
     const currentProtocol = window.location.protocol;
-    const currentDohUrl = currentProtocol + '//' + currentHost + '/dns-query';
+    const currentDohPath = '${DoH路径}';
+    const currentDohUrl = currentProtocol + '//' + currentHost + '/' + currentDohPath;
 
     // 记录当前使用的 DoH 地址
     let activeDohUrl = currentDohUrl;
@@ -996,6 +1052,21 @@ async function HTML() {
           }
         }
         
+        // 处理点击复制功能
+        function handleCopyClick(element, textToCopy) {
+          navigator.clipboard.writeText(textToCopy).then(function() {
+            // 添加复制成功的反馈
+            element.classList.add('copied');
+            
+            // 2秒后移除复制成功效果
+            setTimeout(() => {
+              element.classList.remove('copied');
+            }, 2000);
+          }).catch(function(err) {
+            console.error('复制失败:', err);
+          });
+        }
+        
         // 显示记录
         function displayRecords(data) {
           document.getElementById('resultContainer').style.display = 'block';
@@ -1019,21 +1090,34 @@ async function HTML() {
               if (record.type === 5) { // CNAME 记录
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
-                    <span class="ip-address">\${record.data}</span>
+                    <span class="ip-address" data-copy="\${record.data}">\${record.data}</span>
                     <span class="badge bg-success">CNAME</span>
                     <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                 \`;
                 ipv4Container.appendChild(recordDiv);
+                
+                // 添加点击事件
+                const copyElem = recordDiv.querySelector('.ip-address');
+                copyElem.addEventListener('click', function() {
+                  handleCopyClick(this, this.getAttribute('data-copy'));
+                });
+                
               } else if (record.type === 1) {  // A记录
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
-                    <span class="ip-address">\${record.data}</span>
+                    <span class="ip-address" data-copy="\${record.data}">\${record.data}</span>
                     <span class="geo-info geo-loading">正在获取位置信息...</span>
                     <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                 \`;
                 ipv4Container.appendChild(recordDiv);
+                
+                // 添加点击事件
+                const copyElem = recordDiv.querySelector('.ip-address');
+                copyElem.addEventListener('click', function() {
+                  handleCopyClick(this, this.getAttribute('data-copy'));
+                });
                 
                 // 添加地理位置信息
                 const geoInfoSpan = recordDiv.querySelector('.geo-info');
@@ -1081,21 +1165,34 @@ async function HTML() {
               if (record.type === 5) { // CNAME 记录
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
-                    <span class="ip-address">\${record.data}</span>
+                    <span class="ip-address" data-copy="\${record.data}">\${record.data}</span>
                     <span class="badge bg-success">CNAME</span>
                     <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                 \`;
                 ipv6Container.appendChild(recordDiv);
+                
+                // 添加点击事件
+                const copyElem = recordDiv.querySelector('.ip-address');
+                copyElem.addEventListener('click', function() {
+                  handleCopyClick(this, this.getAttribute('data-copy'));
+                });
+                
               } else if (record.type === 28) {  // AAAA记录
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
-                    <span class="ip-address">\${record.data}</span>
+                    <span class="ip-address" data-copy="\${record.data}">\${record.data}</span>
                     <span class="geo-info geo-loading">正在获取位置信息...</span>
                     <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                 \`;
                 ipv6Container.appendChild(recordDiv);
+                
+                // 添加点击事件
+                const copyElem = recordDiv.querySelector('.ip-address');
+                copyElem.addEventListener('click', function() {
+                  handleCopyClick(this, this.getAttribute('data-copy'));
+                });
                 
                 // 添加地理位置信息
                 const geoInfoSpan = recordDiv.querySelector('.geo-info');
@@ -1144,11 +1241,18 @@ async function HTML() {
               if (record.type === 2) {  // NS 记录
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
-                    <span class="ip-address">\${record.data}</span>
+                    <span class="ip-address" data-copy="\${record.data}">\${record.data}</span>
                     <span class="badge bg-info">NS</span>
                     <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                 \`;
+                
+                // 添加点击事件
+                const copyElem = recordDiv.querySelector('.ip-address');
+                copyElem.addEventListener('click', function() {
+                  handleCopyClick(this, this.getAttribute('data-copy'));
+                });
+                
               } else if (record.type === 6) {  // SOA 记录
                 // SOA 记录格式: primary_ns admin_email serial refresh retry expire minimum
                 const soaParts = record.data.split(' ');
@@ -1156,13 +1260,13 @@ async function HTML() {
                 if (adminEmail.endsWith('.')) adminEmail = adminEmail.slice(0, -1);
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="ip-address">\${record.name}</span>
+                    <span class="ip-address" data-copy="\${record.name}">\${record.name}</span>
                     <span class="badge bg-warning">SOA</span>
                     <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                   <div class="ps-3 small">
-                    <div><strong>主 NS:</strong> \${soaParts[0]}</div>
-                    <div><strong>管理邮箱:</strong> \${adminEmail}</div>
+                    <div><strong>主 NS:</strong> <span class="ip-address" data-copy="\${soaParts[0]}">\${soaParts[0]}</span></div>
+                    <div><strong>管理邮箱:</strong> <span class="ip-address" data-copy="\${adminEmail}">\${adminEmail}</span></div>
                     <div><strong>序列号:</strong> \${soaParts[2]}</div>
                     <div><strong>刷新间隔:</strong> \${formatTTL(soaParts[3])}</div>
                     <div><strong>重试间隔:</strong> \${formatTTL(soaParts[4])}</div>
@@ -1170,15 +1274,30 @@ async function HTML() {
                     <div><strong>最小 TTL:</strong> \${formatTTL(soaParts[6])}</div>
                   </div>
                 \`;
+                
+                // 添加点击事件，为SOA记录中的所有可点击元素添加事件
+                const copyElems = recordDiv.querySelectorAll('.ip-address');
+                copyElems.forEach(elem => {
+                  elem.addEventListener('click', function() {
+                    handleCopyClick(this, this.getAttribute('data-copy'));
+                  });
+                });
+                
               } else {
                 // 其他类型的记录
                 recordDiv.innerHTML = \`
                   <div class="d-flex justify-content-between align-items-center">
-                    <span class="ip-address">\${record.data}</span>
+                    <span class="ip-address" data-copy="\${record.data}">\${record.data}</span>
                     <span class="badge bg-secondary">类型: \${record.type}</span>
                     <span class="text-muted ttl-info">TTL: \${formatTTL(record.TTL)}</span>
                   </div>
                 \`;
+                
+                // 添加点击事件
+                const copyElem = recordDiv.querySelector('.ip-address');
+                copyElem.addEventListener('click', function() {
+                  handleCopyClick(this, this.getAttribute('data-copy'));
+                });
               }
               
               nsContainer.appendChild(recordDiv);
@@ -1272,39 +1391,31 @@ async function HTML() {
           document.getElementById('domain').addEventListener('input', function() {
             localStorage.setItem('lastDomain', this.value);
           });
-        });
 
-        // 页面加载完成后执行
-        document.addEventListener('DOMContentLoaded', function() {
-        // 使用本地存储记住最后使用的域名
-        const lastDomain = localStorage.getItem('lastDomain');
-        if (lastDomain) {
-            document.getElementById('domain').value = lastDomain;
-        }
-        
-        // 监听域名输入变化并保存
-        document.getElementById('domain').addEventListener('input', function() {
-            localStorage.setItem('lastDomain', this.value);
-        });
-
-        // 更新显示当前域名
-        document.getElementById('currentDomain').textContent = currentHost;
-        
-        // 设置DoH链接复制功能
-        const dohUrlDisplay = document.getElementById('dohUrlDisplay');
-        if (dohUrlDisplay) {
+          // 更新显示当前域名
+          document.getElementById('currentDomain').textContent = currentHost;
+          
+          // 更新DoH下拉选择框的自动选项，显示完整URL
+          const currentDohOption = document.getElementById('currentDohOption');
+          if (currentDohOption) {
+            currentDohOption.textContent = currentDohUrl + ' (当前站点)';
+          }
+          
+          // 设置DoH链接复制功能
+          const dohUrlDisplay = document.getElementById('dohUrlDisplay');
+          if (dohUrlDisplay) {
             dohUrlDisplay.addEventListener('click', function() {
-            const textToCopy = currentProtocol + '//' + currentHost + '/${DoH路径}';
-            navigator.clipboard.writeText(textToCopy).then(function() {
+              const textToCopy = currentProtocol + '//' + currentHost + '/' + currentDohPath;
+              navigator.clipboard.writeText(textToCopy).then(function() {
                 dohUrlDisplay.classList.add('copied');
                 setTimeout(() => {
-                dohUrlDisplay.classList.remove('copied');
+                  dohUrlDisplay.classList.remove('copied');
                 }, 2000);
-            }).catch(function(err) {
+              }).catch(function(err) {
                 console.error('复制失败:', err);
+              });
             });
-            });
-        }
+          }
         });
   </script>
 </body>
@@ -1312,6 +1423,92 @@ async function HTML() {
 </html>`;
 
   return new Response(html, {
-    headers: { "content-type": "text/html; charset=UTF-8" }
+    headers: { "content-type": "text/html;charset=UTF-8" }
   });
+}
+
+async function 代理URL(代理网址, 目标网址) {
+  const 网址列表 = await 整理(代理网址);
+  const 完整网址 = 网址列表[Math.floor(Math.random() * 网址列表.length)];
+
+  // 解析目标 URL
+  const 解析后的网址 = new URL(完整网址);
+  console.log(解析后的网址);
+  // 提取并可能修改 URL 组件
+  const 协议 = 解析后的网址.protocol.slice(0, -1) || 'https';
+  const 主机名 = 解析后的网址.hostname;
+  let 路径名 = 解析后的网址.pathname;
+  const 查询参数 = 解析后的网址.search;
+
+  // 处理路径名
+  if (路径名.charAt(路径名.length - 1) == '/') {
+    路径名 = 路径名.slice(0, -1);
+  }
+  路径名 += 目标网址.pathname;
+
+  // 构建新的 URL
+  const 新网址 = `${协议}://${主机名}${路径名}${查询参数}`;
+
+  // 反向代理请求
+  const 响应 = await fetch(新网址);
+
+  // 创建新的响应
+  let 新响应 = new Response(响应.body, {
+    status: 响应.status,
+    statusText: 响应.statusText,
+    headers: 响应.headers
+  });
+
+  // 添加自定义头部，包含 URL 信息
+  //新响应.headers.set('X-Proxied-By', 'Cloudflare Worker');
+  //新响应.headers.set('X-Original-URL', 完整网址);
+  新响应.headers.set('X-New-URL', 新网址);
+
+  return 新响应;
+}
+
+async function 整理(内容) {
+  // 将制表符、双引号、单引号和换行符都替换为逗号
+  // 然后将连续的多个逗号替换为单个逗号
+  var 替换后的内容 = 内容.replace(/[	|"'\r\n]+/g, ',').replace(/,+/g, ',');
+
+  // 删除开头和结尾的逗号（如果有的话）
+  if (替换后的内容.charAt(0) == ',') 替换后的内容 = 替换后的内容.slice(1);
+  if (替换后的内容.charAt(替换后的内容.length - 1) == ',') 替换后的内容 = 替换后的内容.slice(0, 替换后的内容.length - 1);
+
+  // 使用逗号分割字符串，得到地址数组
+  const 地址数组 = 替换后的内容.split(',');
+
+  return 地址数组;
+}
+
+async function nginx() {
+  const text = `
+	<!DOCTYPE html>
+	<html>
+	<head>
+	<title>Welcome to nginx!</title>
+	<style>
+		body {
+			width: 35em;
+			margin: 0 auto;
+			font-family: Tahoma, Verdana, Arial, sans-serif;
+		}
+	</style>
+	</head>
+	<body>
+	<h1>Welcome to nginx!</h1>
+	<p>If you see this page, the nginx web server is successfully installed and
+	working. Further configuration is required.</p>
+	
+	<p>For online documentation and support please refer to
+	<a href="http://nginx.org/">nginx.org</a>.<br/>
+	Commercial support is available at
+	<a href="http://nginx.com/">nginx.com</a>.</p>
+	
+	<p><em>Thank you for using nginx.</em></p>
+	</body>
+	</html>
+	`
+  return text;
 }
