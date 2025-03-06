@@ -1041,7 +1041,7 @@ async function HTML() {
     async function queryIpGeoInfo(ip) {
       try {
         // 改为使用我们自己的代理接口
-        const response = await fetch(\`./ip-info?ip=\${ip}\`);
+        const response = await fetch(\`./ip-info?ip=\${ip}&token=${DoH路径}\`);
             if (!response.ok) {
               throw new Error(\`HTTP 错误: \${response.status}\`);
             }
