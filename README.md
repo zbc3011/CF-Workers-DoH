@@ -89,7 +89,7 @@ https://doh.090227.xyz/ip-info?ip=8.8.8.8&token=CMLiussss
 | URL | `https://www.baidu.com/` |❌| 主页伪装(设为`nginx`则伪装为nginx默认页面) |
 | URL302 | `https://t.me/CMLiussss` |❌| 主页302跳转 |
 
-> [!TIP] 温馨提示
+> [!TIP]
 > 1. 使用 `dns.google` 或 `cloudflare-dns.com` 作为DoH上游时，**解析速度最佳**！
 > 2. 使用 `security.cloudflare-dns.com` 作为DoH上游时，可**阻止恶意软件**的DNS解析服务；
 > 3. 使用 `family.cloudflare-dns.com` 作为DoH上游时，可**阻止恶意软件**和**成人内容**的DNS解析服务；
