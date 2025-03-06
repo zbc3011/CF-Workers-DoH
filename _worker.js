@@ -41,7 +41,7 @@ export default {
         return new Response(JSON.stringify({ error: "IP参数未提供" }), {
           status: 400,
           headers: {
-            "content-type": "application/json",
+            "content-type": "application/json; charset=UTF-8",
             'Access-Control-Allow-Origin': '*'
           }
         });
@@ -60,7 +60,7 @@ export default {
         // 返回数据给客户端，并添加CORS头
         return new Response(JSON.stringify(data, null, 4), {
           headers: {
-            "content-type": "application/json",
+            "content-type": "application/json; charset=UTF-8",
             'Access-Control-Allow-Origin': '*'
           }
         });
@@ -73,7 +73,7 @@ export default {
         }), {
           status: 500,
           headers: {
-            "content-type": "application/json",
+            "content-type": "application/json; charset=UTF-8",
             'Access-Control-Allow-Origin': '*'
           }
         });
@@ -175,13 +175,13 @@ export default {
           combinedResult.ns.records = nsRecords;
 
           return new Response(JSON.stringify(combinedResult, null, 2), {
-            headers: { "content-type": "application/json" }
+            headers: { "content-type": "application/json; charset=UTF-8" }
           });
         } else {
           // 普通的单类型查询，使用新的查询函数
           const result = await queryDns(doh, domain, type);
           return new Response(JSON.stringify(result, null, 2), {
-            headers: { "content-type": "application/json" }
+            headers: { "content-type": "application/json; charset=UTF-8" }
           });
         }
       } catch (err) {
@@ -192,7 +192,7 @@ export default {
           domain: domain,
           stack: err.stack
         }, null, 2), {
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json; charset=UTF-8" },
           status: 500
         });
       }
@@ -321,7 +321,7 @@ async function handleLocalDohRequest(domain, type, hostname) {
 
       return new Response(JSON.stringify(combinedResult, null, 2), {
         headers: {
-          "content-type": "application/json",
+          "content-type": "application/json; charset=UTF-8",
           'Access-Control-Allow-Origin': '*'
         }
       });
@@ -330,7 +330,7 @@ async function handleLocalDohRequest(domain, type, hostname) {
       const result = await queryDns(dnsDoH, domain, type);
       return new Response(JSON.stringify(result, null, 2), {
         headers: {
-          "content-type": "application/json",
+          "content-type": "application/json; charset=UTF-8",
           'Access-Control-Allow-Origin': '*'
         }
       });
@@ -342,7 +342,7 @@ async function handleLocalDohRequest(domain, type, hostname) {
       stack: err.stack
     }, null, 2), {
       headers: {
-        "content-type": "application/json",
+        "content-type": "application/json; charset=UTF-8",
         'Access-Control-Allow-Origin': '*'
       },
       status: 500
@@ -1312,6 +1312,6 @@ async function HTML() {
 </html>`;
 
   return new Response(html, {
-    headers: { "content-type": "text/html;charset=UTF-8" }
+    headers: { "content-type": "text/html; charset=UTF-8" }
   });
 }
