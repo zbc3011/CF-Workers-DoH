@@ -39,7 +39,12 @@ export default {
       if (env.TOKEN) {
         const token = url.searchParams.get('token');
         if (token != env.TOKEN) {
-          return new Response(JSON.stringify({ error: "Token不正确" }), {
+          return new Response(JSON.stringify({ 
+            status: "error",
+            message: "Token不正确",
+            code: "AUTH_FAILED",
+            timestamp: new Date().toISOString()
+          }, null, 4), {
             status: 403,
             headers: {
               "content-type": "application/json; charset=UTF-8",
@@ -51,7 +56,12 @@ export default {
 
       const ip = url.searchParams.get('ip') || request.headers.get('CF-Connecting-IP');
       if (!ip) {
-        return new Response(JSON.stringify({ error: "IP参数未提供" }), {
+        return new Response(JSON.stringify({ 
+          status: "error",
+          message: "IP参数未提供",
+          code: "MISSING_PARAMETER",
+          timestamp: new Date().toISOString()
+        }, null, 4), {
           status: 400,
           headers: {
             "content-type": "application/json; charset=UTF-8",
@@ -69,6 +79,9 @@ export default {
         }
 
         const data = await response.json();
+        
+        // 添加时间戳到成功的响应数据中
+        data.timestamp = new Date().toISOString();
 
         // 返回数据给客户端，并添加CORS头
         return new Response(JSON.stringify(data, null, 4), {
@@ -81,9 +94,16 @@ export default {
       } catch (error) {
         console.error("IP查询失败:", error);
         return new Response(JSON.stringify({
-          error: `IP查询失败: ${error.message}`,
-          status: 'error'
-        }), {
+          status: "error",
+          message: `IP查询失败: ${error.message}`,
+          code: "API_REQUEST_FAILED",
+          query: ip,
+          timestamp: new Date().toISOString(),
+          details: {
+            errorType: error.name,
+            stack: error.stack ? error.stack.split('\n')[0] : null
+          }
+        }, null, 4), {
           status: 500,
           headers: {
             "content-type": "application/json; charset=UTF-8",
