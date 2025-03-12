@@ -473,6 +473,12 @@ async function DOHRequest(request) {
     responseHeaders.set('Access-Control-Allow-Origin', '*');
     responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     responseHeaders.set('Access-Control-Allow-Headers', '*');
+    
+    // 检查是否为JSON格式的DoH请求，确保设置正确的Content-Type
+    if (method === 'GET' && searchParams.has('name')) {
+      // 对于JSON格式的DoH请求，明确设置Content-Type为application/json
+      responseHeaders.set('Content-Type', 'application/json');
+    }
 
     // 返回响应
     return new Response(response.body, {
