@@ -929,8 +929,9 @@ async function HTML() {
               <button type="button" class="btn btn-outline-secondary" id="clearBtn">清除</button>
             </div>
           </div>
-          <div class="d-grid">
-            <button type="submit" class="btn btn-primary">解析</button>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary flex-grow-1">解析</button>
+            <button type="button" class="btn btn-outline-primary" id="getJsonBtn">Get Json</button>
           </div>
         </form>
       </div>
@@ -1442,6 +1443,40 @@ async function HTML() {
               });
             });
           }
+
+          // 添加Get Json按钮的点击事件
+          document.getElementById('getJsonBtn').addEventListener('click', function() {
+            const dohSelect = document.getElementById('dohSelect').value;
+            let dohUrl;
+            
+            // 获取当前选择的DoH服务器URL
+            if(dohSelect === 'current') {
+              dohUrl = currentDohUrl;
+            } else if(dohSelect === 'custom') {
+              dohUrl = document.getElementById('customDoh').value;
+              if (!dohUrl) {
+                alert('请输入自定义 DoH 地址');
+                return;
+              }
+            } else {
+              dohUrl = dohSelect;
+            }
+            
+            // 获取域名
+            const domain = document.getElementById('domain').value;
+            if (!domain) {
+              alert('请输入需要解析的域名');
+              return;
+            }
+            
+            // 构建完整的查询URL
+            let jsonUrl = new URL(dohUrl);
+            // 使用name参数(标准DNS-JSON格式)
+            jsonUrl.searchParams.set('name', domain);
+            
+            // 在新标签页打开
+            window.open(jsonUrl.toString(), '_blank');
+          });
         });
   </script>
 </body>
