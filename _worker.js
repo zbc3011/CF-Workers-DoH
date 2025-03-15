@@ -987,7 +987,7 @@ async function HTML() {
           </div>
         </div>
 
-        <!-- 错误信息区域 -->
+        <!-- 错误信息 -->
         <div id="errorContainer" style="display: none;">
           <pre id="errorMessage" class="error-message"></pre>
         </div>
@@ -1250,7 +1250,7 @@ async function HTML() {
             });
           }
           
-          // NS 记录
+          // NS 
           const nsRecords = data.ns?.records || [];
           const nsContainer = document.getElementById('nsRecords');
           nsContainer.innerHTML = '';
